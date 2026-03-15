@@ -1,0 +1,12 @@
+{
+  "name": "media-worker",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node worker.js"
+  },
+  "dependencies": {
+    "@transcriber/shared": "*",
+    "bullmq": "^5.12.7"
+  }
+}

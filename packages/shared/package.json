@@ -1,0 +1,12 @@
+{
+  "name": "@transcriber/shared",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "bullmq": "^5.12.7",
+    "mime-types": "^2.1.35",
+    "pg": "^8.12.0",
+    "redis": "^4.7.0"
+  }
+}
