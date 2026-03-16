@@ -1,6 +1,25 @@
 import shared from "@transcriber/shared";
 
-const { createJob, detectSourceType, getQueue, MEDIA_QUEUE_NAME, validateSourceUrl } = shared;
+const { createJob, detectSourceType, getQueue, MEDIA_QUEUE_NAME, validateSourceUrl, getPool } = shared;
+
+export async function GET() {
+  try {
+    const pool = getPool();
+    const result = await pool.query(`
+      SELECT j.id, j.title, j.source_url, j.source_type, j.status, j.progress,
+             j.requested_outputs, j.error_message, j.created_at,
+             s.headline
+      FROM jobs j
+      LEFT JOIN summaries s ON s.job_id = j.id
+      ORDER BY j.created_at DESC
+      LIMIT 50
+    `);
+    return Response.json({ jobs: result.rows }, { status: 200 });
+  } catch (error) {
+    console.error("GET /api/jobs error:", error);
+    return Response.json({ error: "Unable to load jobs." }, { status: 500 });
+  }
+}
 
 export async function POST(request) {
   try {
