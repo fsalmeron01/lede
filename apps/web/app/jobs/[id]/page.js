@@ -11,8 +11,8 @@ function statusLabel(status) {
 }
 function statusColor(status) {
   if (status === "completed") return "var(--green)";
-  if (status === "failed") return "var(--red)";
-  return "var(--amber-light)";
+  if (status === "failed") return "var(--red-err)";
+  return "var(--ct-blue-light)";
 }
 
 function Rule() {
@@ -38,7 +38,7 @@ function Tag({ children, color = "var(--muted)" }) {
 function DownloadPill({ href, label, ext }) {
   const colors = {
     mp3: "#e87e4a", txt: "#6db888", docx: "#6b9ae8",
-    srt: "var(--amber-light)", vtt: "var(--amber-light)",
+    srt: "var(--ct-blue-light)", vtt: "var(--ct-blue-light)",
   };
   const c = colors[ext] || "var(--text-dim)";
   return (
@@ -84,8 +84,8 @@ function Tab({ label, active, onClick }) {
   return (
     <button onClick={onClick} style={{
       background: "none", border: "none",
-      borderBottom: active ? "2px solid var(--amber)" : "2px solid transparent",
-      color: active ? "var(--amber-light)" : "var(--text-dim)",
+      borderBottom: active ? "2px solid var(--ct-blue-light)" : "2px solid transparent",
+      color: active ? "var(--ct-blue-light)" : "var(--text-dim)",
       padding: "10px 20px",
       cursor: "pointer",
       fontFamily: "var(--font-body)",
@@ -129,7 +129,7 @@ export default function JobPage() {
 
   if (!job) return (
     <main style={{ maxWidth: 860, margin: "0 auto", padding: "80px 24px" }}>
-      <a href="/" style={{ color: "var(--amber-light)", fontFamily: "var(--font-mono)", fontSize: 13 }}>← Back</a>
+      <a href="/" style={{ color: "var(--ct-blue-light)", fontFamily: "var(--font-mono)", fontSize: 13 }}>← Back</a>
       <h1 style={{ fontFamily: "var(--font-display)", marginTop: 24 }}>Job not found</h1>
     </main>
   );
@@ -152,7 +152,7 @@ export default function JobPage() {
           fontFamily: "var(--font-mono)", fontSize: 12,
           letterSpacing: 1, color: "var(--muted)",
           textDecoration: "none",
-        }}>← BACK</a>
+        }}>← LEDE</a>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{
             fontFamily: "var(--font-mono)", fontSize: 11,
@@ -174,7 +174,7 @@ export default function JobPage() {
       <div style={{ marginBottom: 48, animation: "fadeUp 0.5s ease both" }}>
         {hasSummary ? (
           <>
-            <Tag color="var(--amber)">AI Analysis Complete</Tag>
+            <Tag color="var(--ct-blue-light)">AI Analysis Complete</Tag>
             <h1 style={{
               fontFamily: "var(--font-display)",
               fontSize: "clamp(28px, 5vw, 52px)",
@@ -208,7 +208,7 @@ export default function JobPage() {
               </p>
             )}
             {!hasSummary && job.status === "completed" && (
-              <p style={{ fontSize: 13, color: "var(--amber)", fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>
+              <p style={{ fontSize: 13, color: "var(--ct-blue-light)", fontFamily: "var(--font-mono)", letterSpacing: 0.5 }}>
                 ✦ AI analysis in progress...
               </p>
             )}
@@ -222,7 +222,7 @@ export default function JobPage() {
           padding: "14px 20px",
           background: "var(--charcoal)",
           border: "1px solid var(--rule)",
-          borderLeft: "3px solid var(--amber-dim)",
+          borderLeft: "3px solid var(--ct-blue-dark)",
           borderRadius: "0 10px 10px 0",
           marginBottom: 32,
           display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16,
@@ -343,11 +343,11 @@ export default function JobPage() {
                     <div style={{
                       padding: "16px 20px",
                       background: "rgba(200,130,26,0.05)",
-                      borderLeft: "3px solid var(--amber-dim)",
+                      borderLeft: "3px solid var(--ct-blue-dark)",
                       borderRadius: "0 10px 10px 0",
                       marginBottom: 28,
                     }}>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--amber-dim)", marginBottom: 8, textTransform: "uppercase" }}>Summary</div>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--ct-blue-dark)", marginBottom: 8, textTransform: "uppercase" }}>Summary</div>
                       <p style={{ color: "var(--text-dim)", lineHeight: 1.7, fontSize: 15, margin: 0 }}>{job.summary.summary_text}</p>
                     </div>
                   )}
@@ -420,7 +420,7 @@ export default function JobPage() {
             background: "rgba(217,96,96,0.06)",
             border: "1px solid rgba(217,96,96,0.2)",
             borderRadius: 10,
-            color: "var(--red)",
+            color: "var(--red-err)",
             fontFamily: "var(--font-mono)",
             fontSize: 13,
           }}>
@@ -436,7 +436,7 @@ export default function JobPage() {
           JOB ID: {job.id}
         </span>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", letterSpacing: 1 }}>
-          CAMDEN TRIBUNE MEDIA TOOLS
+          LEDE · CAMDEN TRIBUNE
         </span>
       </div>
     </main>
