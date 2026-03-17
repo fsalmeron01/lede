@@ -7,7 +7,7 @@ export async function GET() {
     const pool = getPool();
     const result = await pool.query(`
       SELECT j.id, j.title, j.source_url, j.source_type, j.status, j.progress,
-             j.requested_outputs, j.error_message, j.created_at,
+             j.content_mode, j.requested_outputs, j.error_message, j.created_at,
              s.headline
       FROM jobs j
       LEFT JOIN summaries s ON s.job_id = j.id
@@ -26,9 +26,10 @@ export async function POST(request) {
     const body = await request.json();
     const sourceUrl = body?.sourceUrl?.trim();
     const outputs = Array.isArray(body?.outputs) ? body.outputs : [];
+    const contentMode = body?.contentMode || "camden-tribune";
 
     const allowedOutputs = ["mp3", "txt", "docx"];
-    const requestedOutputs = outputs.filter((value) => allowedOutputs.includes(value));
+    const requestedOutputs = outputs.filter(v => allowedOutputs.includes(v));
 
     if (requestedOutputs.length === 0) {
       return Response.json({ error: "Select at least one output." }, { status: 400 });
@@ -40,7 +41,7 @@ export async function POST(request) {
     }
 
     const sourceType = detectSourceType(sourceUrl);
-    const job = await createJob({ sourceUrl, sourceType, requestedOutputs });
+    const job = await createJob({ sourceUrl, sourceType, requestedOutputs, contentMode });
 
     const mediaQueue = getQueue(MEDIA_QUEUE_NAME);
     await mediaQueue.add("process-media", { jobId: job.id }, {

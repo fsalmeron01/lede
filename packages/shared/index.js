@@ -7,6 +7,18 @@ const mime = require("mime-types");
 const MEDIA_QUEUE_NAME = "media-jobs";
 const TRANSCRIBE_QUEUE_NAME = "transcribe-jobs";
 
+// Granular status labels + progress map
+const JOB_STATUS_LABELS = {
+  "queued":                   { label: "Queued",               progress: 5  },
+  "fetching":                 { label: "Downloading media",    progress: 15 },
+  "extracting-audio":         { label: "Extracting audio",     progress: 40 },
+  "queued-for-transcription": { label: "Awaiting transcription", progress: 55 },
+  "transcribing":             { label: "Transcribing",         progress: 70 },
+  "generating-article":       { label: "Generating article",   progress: 88 },
+  "completed":                { label: "Complete",             progress: 100 },
+  "failed":                   { label: "Failed",               progress: 0  },
+};
+
 let poolInstance;
 function getPool() {
   if (!poolInstance) {
@@ -15,43 +27,27 @@ function getPool() {
   return poolInstance;
 }
 
-function getStorageRoot() {
-  return process.env.STORAGE_ROOT || "/data";
-}
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-  return dirPath;
-}
-
-function getJobDir(jobId) {
-  return ensureDir(path.join(getStorageRoot(), "jobs", jobId));
-}
-
-function getDownloadsDir(jobId) {
-  return ensureDir(path.join(getJobDir(jobId), "downloads"));
-}
-
-function getWorkingDir(jobId) {
-  return ensureDir(path.join(getJobDir(jobId), "work"));
-}
+function getStorageRoot() { return process.env.STORAGE_ROOT || "/data"; }
+function ensureDir(dirPath) { fs.mkdirSync(dirPath, { recursive: true }); return dirPath; }
+function getJobDir(jobId) { return ensureDir(path.join(getStorageRoot(), "jobs", jobId)); }
+function getDownloadsDir(jobId) { return ensureDir(path.join(getJobDir(jobId), "downloads")); }
+function getWorkingDir(jobId) { return ensureDir(path.join(getJobDir(jobId), "work")); }
 
 function getRedisConnection() {
-  const redisUrl = process.env.REDIS_URL || "redis://redis:6379";
-  return { url: redisUrl, maxRetriesPerRequest: null };
+  return { url: process.env.REDIS_URL || "redis://redis:6379", maxRetriesPerRequest: null };
 }
 
 function getQueue(queueName) {
   return new Queue(queueName, { connection: getRedisConnection() });
 }
 
-async function createJob({ sourceUrl, sourceType, requestedOutputs }) {
+async function createJob({ sourceUrl, sourceType, requestedOutputs, contentMode = "camden-tribune" }) {
   const pool = getPool();
   const result = await pool.query(
-    `INSERT INTO jobs (source_url, source_type, requested_outputs, status, progress)
-     VALUES ($1, $2, $3::jsonb, 'queued', 0)
+    `INSERT INTO jobs (source_url, source_type, requested_outputs, content_mode, status, progress)
+     VALUES ($1, $2, $3::jsonb, $4, 'queued', 0)
      RETURNING *`,
-    [sourceUrl, sourceType, JSON.stringify(requestedOutputs)]
+    [sourceUrl, sourceType, JSON.stringify(requestedOutputs), contentMode]
   );
   return result.rows[0];
 }
@@ -63,21 +59,22 @@ async function getJob(jobId) {
   const job = jobRes.rows[0];
 
   const artifactsRes = await pool.query(
-    `SELECT * FROM artifacts WHERE job_id = $1 ORDER BY created_at ASC`,
-    [jobId]
+    `SELECT * FROM artifacts WHERE job_id = $1 ORDER BY created_at ASC`, [jobId]
   );
   const transcriptRes = await pool.query(
-    `SELECT * FROM transcripts WHERE job_id = $1`,
-    [jobId]
+    `SELECT * FROM transcripts WHERE job_id = $1`, [jobId]
   );
   const summaryRes = await pool.query(
-    `SELECT * FROM summaries WHERE job_id = $1`,
-    [jobId]
+    `SELECT * FROM summaries WHERE job_id = $1`, [jobId]
+  );
+  const publishRes = await pool.query(
+    `SELECT * FROM publish_log WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1`, [jobId]
   );
 
   job.artifacts = artifactsRes.rows;
   job.transcript = transcriptRes.rows[0] || null;
   job.summary = summaryRes.rows[0] || null;
+  job.publish_log = publishRes.rows[0] || null;
   return job;
 }
 
@@ -125,9 +122,9 @@ async function upsertTranscript({ jobId, language, rawText, cleanText, segmentsJ
 }
 
 function detectSourceType(url) {
-  const value = (url || "").toLowerCase();
-  if (value.includes("youtube.com") || value.includes("youtu.be")) return "youtube";
-  if (value.includes("vimeo.com")) return "vimeo";
+  const v = (url || "").toLowerCase();
+  if (v.includes("youtube.com") || v.includes("youtu.be")) return "youtube";
+  if (v.includes("vimeo.com")) return "vimeo";
   return "unknown";
 }
 
@@ -137,11 +134,21 @@ function validateSourceUrl(url) {
   try {
     const parsed = new URL(url);
     if (!["http:", "https:"].includes(parsed.protocol)) return "Only HTTP and HTTPS URLs are allowed.";
+    // Block internal/private IPs
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname.startsWith("127.") ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("172.") ||
+      hostname === "0.0.0.0"
+    ) return "Internal URLs are not allowed.";
   } catch {
     return "The URL is not valid.";
   }
   const sourceType = detectSourceType(url);
-  if (!["youtube", "vimeo"].includes(sourceType)) return "Only YouTube and Vimeo URLs are supported in V1.";
+  if (!["youtube", "vimeo"].includes(sourceType)) return "Only YouTube and Vimeo URLs are supported.";
   return null;
 }
 
@@ -149,38 +156,33 @@ function getMimeTypeForFile(filePath) {
   return mime.lookup(filePath) || "application/octet-stream";
 }
 
-// SRT formatter
 function formatSRT(segments) {
   if (!segments || segments.length === 0) return "";
-  function toSRTTime(seconds) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const ms = Math.round((seconds % 1) * 1000);
-    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")},${String(ms).padStart(3,"0")}`;
+  function toSRTTime(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60),
+          sec = Math.floor(s % 60), ms = Math.round((s % 1) * 1000);
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")},${String(ms).padStart(3,"0")}`;
   }
   return segments.map((seg, i) => (
-    `${i + 1}\n${toSRTTime(seg.start)} --> ${toSRTTime(seg.end)}\n${seg.text.trim()}\n`
+    `${i+1}\n${toSRTTime(seg.start)} --> ${toSRTTime(seg.end)}\n${seg.text.trim()}\n`
   )).join("\n");
 }
 
-// VTT formatter
 function formatVTT(segments) {
   if (!segments || segments.length === 0) return "WEBVTT\n";
-  function toVTTTime(seconds) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = Math.floor(seconds % 60);
-    const ms = Math.round((seconds % 1) * 1000);
-    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${String(ms).padStart(3,"0")}`;
+  function toVTTTime(s) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60),
+          sec = Math.floor(s % 60), ms = Math.round((s % 1) * 1000);
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}.${String(ms).padStart(3,"0")}`;
   }
   const cues = segments.map((seg, i) => (
-    `${i + 1}\n${toVTTTime(seg.start)} --> ${toVTTTime(seg.end)}\n${seg.text.trim()}\n`
+    `${i+1}\n${toVTTTime(seg.start)} --> ${toVTTTime(seg.end)}\n${seg.text.trim()}\n`
   )).join("\n");
   return `WEBVTT\n\n${cues}`;
 }
 
 module.exports = {
+  JOB_STATUS_LABELS,
   MEDIA_QUEUE_NAME,
   TRANSCRIBE_QUEUE_NAME,
   createJob,

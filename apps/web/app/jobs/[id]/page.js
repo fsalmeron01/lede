@@ -109,6 +109,22 @@ export default function JobPage() {
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("article");
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState(null);
+
+  async function handlePublish() {
+    setPublishing(true);
+    setPublishResult(null);
+    try {
+      const res = await fetch(`/api/jobs/${params.id}/publish`, { method: "POST" });
+      const data = await res.json();
+      setPublishResult(data);
+    } catch (err) {
+      setPublishResult({ error: err.message });
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   const fetchJob = useCallback(async () => {
     try {
@@ -237,6 +253,49 @@ export default function JobPage() {
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-dim)" }}>
               {s.headline_heat_label}
             </span>
+          )}
+        </div>
+      )}
+
+      {/* Publish to WordPress */}
+      {s?.article_draft && (
+        <div style={{ marginBottom: 28 }}>
+          {!publishResult ? (
+            <button
+              onClick={handlePublish}
+              disabled={publishing}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 10,
+                padding: "12px 24px",
+                background: publishing ? "var(--charcoal-light)" : "var(--ct-blue-dark)",
+                color: publishing ? "var(--muted)" : "#fff",
+                border: `1px solid ${publishing ? "var(--charcoal-light)" : "var(--ct-blue)"}`,
+                borderRadius: 10, cursor: publishing ? "not-allowed" : "pointer",
+                fontFamily: "var(--font-body)", fontSize: 14, fontWeight: 600,
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={e => { if (!publishing) e.currentTarget.style.background = "var(--ct-blue)"; }}
+              onMouseLeave={e => { if (!publishing) e.currentTarget.style.background = "var(--ct-blue-dark)"; }}
+            >
+              {publishing ? <><span className="pulsing">●</span> Publishing to WordPress...</> : "⬆ Publish Draft to WordPress"}
+            </button>
+          ) : publishResult.error ? (
+            <div style={{ padding: "14px 20px", background: "rgba(200,80,80,0.08)", border: "1px solid rgba(200,80,80,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--red-err)" }}>✕ {publishResult.error}</span>
+              <button onClick={() => setPublishResult(null)} style={{ background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 18 }}>×</button>
+            </div>
+          ) : (
+            <div style={{ padding: "14px 20px", background: "rgba(90,170,120,0.08)", border: "1px solid rgba(90,170,120,0.25)", borderRadius: 10 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: 2, color: "var(--green)", marginBottom: 10, textTransform: "uppercase" }}>✓ Published to WordPress as Draft</div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                <a href={publishResult.wp_edit_url} target="_blank" rel="noopener noreferrer" style={{ padding: "8px 16px", background: "var(--ct-blue-dark)", border: "1px solid var(--ct-blue)", borderRadius: 8, color: "#fff", fontSize: 13, fontFamily: "var(--font-mono)", textDecoration: "none" }}>
+                  Edit in WordPress →
+                </a>
+                <a href={publishResult.wp_post_url} target="_blank" rel="noopener noreferrer" style={{ padding: "8px 16px", background: "transparent", border: "1px solid var(--rule)", borderRadius: 8, color: "var(--text-dim)", fontSize: 13, fontFamily: "var(--font-mono)", textDecoration: "none" }}>
+                  Preview post →
+                </a>
+              </div>
+            </div>
           )}
         </div>
       )}

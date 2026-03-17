@@ -18,27 +18,12 @@ const TRANSCRIBE_LIST_KEY = "transcribe:jobs";
 
 function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      ...options,
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    child.on("close", (code) => {
-      if (code !== 0) {
-        reject(new Error(`${command} exited with ${code}\n${stderr}`));
-        return;
-      }
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
+    let stdout = "", stderr = "";
+    child.stdout.on("data", d => stdout += d.toString());
+    child.stderr.on("data", d => stderr += d.toString());
+    child.on("close", code => {
+      if (code !== 0) { reject(new Error(`${command} exited ${code}\n${stderr}`)); return; }
       resolve({ stdout, stderr });
     });
   });
@@ -46,17 +31,10 @@ function runCommand(command, args, options = {}) {
 
 async function detectTitleAndFilename(sourceUrl, outputTemplate) {
   const result = await runCommand("yt-dlp", [
-    "--print",
-    "%(title)s",
-    "--get-filename",
-    "-o",
-    outputTemplate,
-    sourceUrl,
+    "--print", "%(title)s", "--get-filename", "-o", outputTemplate, sourceUrl,
   ]);
   const lines = result.stdout.trim().split("\n").filter(Boolean);
-  const title = lines[0] || null;
-  const filename = lines[1] || null;
-  return { title, filename };
+  return { title: lines[0] || null, filename: lines[1] || null };
 }
 
 async function enqueueTranscriptionJob(payload) {
@@ -78,38 +56,32 @@ async function processMediaJob(jobPayload) {
   const downloadsDir = getDownloadsDir(jobId);
 
   try {
+    // Stage 1: Resolving source
     await updateJob(jobId, { status: "fetching", progress: 10 });
-
     const outputTemplate = path.join(workDir, "source.%(ext)s");
     const { title } = await detectTitleAndFilename(job.source_url, outputTemplate);
-    await updateJob(jobId, { title });
+    if (title) await updateJob(jobId, { title });
+    console.log(`[media] Job ${jobId} — downloading: "${title}"`);
 
+    // Stage 2: Downloading
+    await updateJob(jobId, { status: "fetching", progress: 20 });
     await runCommand("yt-dlp", [
-      "-f",
-      process.env.YTDLP_FORMAT || "bestaudio/best",
-      "-o",
-      outputTemplate,
+      "-f", process.env.YTDLP_FORMAT || "bestaudio/best",
+      "-o", outputTemplate,
       job.source_url,
     ]);
 
-    const downloadedFiles = fs.readdirSync(workDir).map((name) => path.join(workDir, name));
-    const sourcePath = downloadedFiles.find((file) => fs.statSync(file).isFile());
-    if (!sourcePath) {
-      throw new Error("No source media file was downloaded.");
-    }
+    const downloadedFiles = fs.readdirSync(workDir).map(n => path.join(workDir, n));
+    const sourcePath = downloadedFiles.find(f => fs.statSync(f).isFile());
+    if (!sourcePath) throw new Error("No source media file was downloaded.");
 
-    await updateJob(jobId, { status: "extracting-audio", progress: 45 });
-
+    // Stage 3: Extracting audio
+    await updateJob(jobId, { status: "extracting-audio", progress: 40 });
+    console.log(`[media] Job ${jobId} — extracting audio`);
     const mp3Path = path.join(downloadsDir, `${jobId}.mp3`);
     await runCommand("ffmpeg", [
-      "-y",
-      "-i",
-      sourcePath,
-      "-vn",
-      "-acodec",
-      "libmp3lame",
-      "-ab",
-      "128k",
+      "-y", "-i", sourcePath,
+      "-vn", "-acodec", "libmp3lame", "-ab", "128k",
       mp3Path,
     ]);
 
@@ -125,15 +97,14 @@ async function processMediaJob(jobPayload) {
       });
     }
 
-    await updateJob(jobId, { status: "queued-for-transcription", progress: 60 });
-
+    // Stage 4: Queue for transcription
+    await updateJob(jobId, { status: "queued-for-transcription", progress: 55 });
+    console.log(`[media] Job ${jobId} — queued for transcription`);
     await enqueueTranscriptionJob({ jobId, mp3Path });
+
   } catch (error) {
-    await updateJob(jobId, {
-      status: "failed",
-      progress: 100,
-      error_message: error.message,
-    });
+    console.error(`[media] Job ${jobId} failed:`, error.message);
+    await updateJob(jobId, { status: "failed", progress: 0, error_message: error.message });
     throw error;
   }
 }
@@ -141,24 +112,13 @@ async function processMediaJob(jobPayload) {
 async function boot() {
   await getPool().query("SELECT 1");
   console.log("Media worker connected to PostgreSQL.");
-
   const worker = new Worker(MEDIA_QUEUE_NAME, processMediaJob, {
     connection: getRedisConnection(),
     concurrency: 2,
   });
-
-  worker.on("completed", (job) => {
-    console.log(`Media job ${job.id} completed.`);
-  });
-
-  worker.on("failed", (job, err) => {
-    console.error(`Media job ${job?.id || "unknown"} failed:`, err.message);
-  });
-
+  worker.on("completed", job => console.log(`[media] Job ${job.id} completed.`));
+  worker.on("failed", (job, err) => console.error(`[media] Job ${job?.id} failed:`, err.message));
   console.log("Media worker is listening...");
 }
 
-boot().catch((error) => {
-  console.error("Media worker failed to start:", error);
-  process.exit(1);
-});
+boot().catch(err => { console.error("Media worker failed to start:", err); process.exit(1); });
