@@ -6,6 +6,7 @@
     "start": "node worker.js"
   },
   "dependencies": {
-    "pg": "^8.11.0"
+    "pg": "^8.11.0",
+    "docx": "^8.5.0"
   }
 }

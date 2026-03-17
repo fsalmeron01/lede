@@ -1,9 +1,13 @@
 "use strict";
 
 const { Pool } = require("pg");
+const fs = require("fs");
+const path = require("path");
+const { Document, Paragraph, TextRun, HeadingLevel, AlignmentType, Packer } = require("docx");
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const STORAGE_ROOT = process.env.STORAGE_ROOT || "/data";
 const POLL_INTERVAL = 15000;
 
 const CONTENT_MODES = {
@@ -33,9 +37,320 @@ const CONTENT_MODES = {
   },
 };
 
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function getJobDir(jobId) {
+  const dir = path.join(STORAGE_ROOT, "jobs", jobId, "downloads");
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+async function insertArtifact(jobId, artifactType, filePath, mimeType) {
+  const stat = fs.statSync(filePath);
+  await pool.query(
+    `INSERT INTO artifacts (job_id, artifact_type, file_path, file_name, mime_type, size_bytes)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT DO NOTHING`,
+    [jobId, artifactType, filePath, path.basename(filePath), mimeType, stat.size]
+  );
+}
+
+// ─── Article DOCX generator ─────────────────────────────────────────────────
+
+async function buildArticleDocx(jobId, job, result) {
+  const outputDir = getJobDir(jobId);
+  const filePath = path.join(outputDir, `${jobId}-article.docx`);
+
+  const children = [];
+
+  // Publication header
+  children.push(new Paragraph({
+    children: [new TextRun({ text: "Camden Tribune", bold: true, size: 28, color: "2E4D6B" })],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 100 },
+  }));
+
+  children.push(new Paragraph({
+    children: [new TextRun({ text: "lede.camdentribune.com", size: 18, color: "888888", italics: true })],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 400 },
+  }));
+
+  // Headline
+  children.push(new Paragraph({
+    text: result.headline || "Untitled",
+    heading: HeadingLevel.HEADING_1,
+    spacing: { after: 160 },
+  }));
+
+  // Subtitle
+  if (result.subtitle) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: result.subtitle, italics: true, size: 26, color: "444444" })],
+      spacing: { after: 160 },
+    }));
+  }
+
+  // Byline / metadata
+  const now = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: "By: ", bold: true, size: 20 }),
+      new TextRun({ text: "[Reporter Name]", size: 20, color: "888888" }),
+      new TextRun({ text: "   |   ", size: 20, color: "CCCCCC" }),
+      new TextRun({ text: now, size: 20, color: "888888" }),
+      new TextRun({ text: "   |   ", size: 20, color: "CCCCCC" }),
+      new TextRun({ text: `Mode: ${result.mode_label || result.mode || ""}`, size: 20, color: "888888" }),
+    ],
+    spacing: { after: 80 },
+  }));
+
+  // Divider
+  children.push(new Paragraph({ text: "────────────────────────────────", spacing: { after: 320 }, alignment: AlignmentType.CENTER }));
+
+  // Article body
+  const paragraphs = (result.article || "").split("\n\n").filter(p => p.trim());
+  for (const para of paragraphs) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: para.trim(), size: 24 })],
+      spacing: { after: 240 },
+      alignment: AlignmentType.JUSTIFIED,
+    }));
+  }
+
+  // Key quotes section
+  if (result.key_quotes?.length > 0) {
+    children.push(new Paragraph({ text: "", spacing: { after: 200 } }));
+    children.push(new Paragraph({ text: "KEY QUOTES", heading: HeadingLevel.HEADING_2, spacing: { after: 160 } }));
+    for (const quote of result.key_quotes) {
+      children.push(new Paragraph({
+        children: [new TextRun({ text: `"${quote}"`, italics: true, size: 22, color: "2E4D6B" })],
+        spacing: { after: 160 },
+        indent: { left: 720 },
+      }));
+    }
+  }
+
+  // SEO section
+  children.push(new Paragraph({ text: "", spacing: { after: 200 } }));
+  children.push(new Paragraph({ text: "SEO & PUBLICATION NOTES", heading: HeadingLevel.HEADING_2, spacing: { after: 160 } }));
+
+  const yoast = result.yoast || {};
+  const seoFields = [
+    ["SEO Title",       yoast.seo_title],
+    ["Slug",            yoast.slug],
+    ["Meta Description",yoast.meta_description],
+    ["Focus Keyphrase", yoast.focus_keyphrase],
+    ["Categories",      (result.categories || []).join(", ")],
+    ["Tags",            (result.tags || []).join(", ")],
+  ];
+
+  for (const [label, value] of seoFields) {
+    if (value) {
+      children.push(new Paragraph({
+        children: [
+          new TextRun({ text: `${label}: `, bold: true, size: 20 }),
+          new TextRun({ text: value, size: 20 }),
+        ],
+        spacing: { after: 100 },
+      }));
+    }
+  }
+
+  // Source info
+  children.push(new Paragraph({ text: "", spacing: { after: 200 } }));
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: "Generated by Lede · Camden Tribune Media Intelligence · ", size: 18, color: "AAAAAA", italics: true }),
+      new TextRun({ text: now, size: 18, color: "AAAAAA", italics: true }),
+    ],
+    spacing: { after: 100 },
+  }));
+
+  const doc = new Document({ sections: [{ children }] });
+  const buffer = await Packer.toBuffer(doc);
+  fs.writeFileSync(filePath, buffer);
+  return filePath;
+}
+
+// ─── JSON package generator ──────────────────────────────────────────────────
+
+function buildJsonPackage(jobId, job, result) {
+  const outputDir = getJobDir(jobId);
+  const filePath = path.join(outputDir, `${jobId}-package.json`);
+
+  const pkg = {
+    _meta: {
+      generated_by: "Lede · Camden Tribune Media Intelligence",
+      generated_at: new Date().toISOString(),
+      job_id: jobId,
+      source_url: job.source_url,
+      source_type: job.source_type,
+      content_mode: job.content_mode,
+      title: job.title,
+    },
+    story: {
+      headline:         result.headline,
+      subtitle:         result.subtitle,
+      summary:          result.summary,
+      newspack_excerpt: result.newspack_excerpt,
+      article:          result.article,
+      key_quotes:       result.key_quotes || [],
+    },
+    wordpress: {
+      categories: result.categories || [],
+      tags:       result.tags || [],
+      excerpt:    result.newspack_excerpt || result.summary || "",
+    },
+    yoast: result.yoast || {},
+    scores: {
+      headline_heat_score:  result.headline_heat_score,
+      headline_heat_label:  result.headline_heat_label,
+      seo_strength_score:   result.seo_strength_score,
+      legal_risk_level:     result.legal_risk_level,
+      legal_flags:          result.legal_flags || [],
+    },
+    readability: result.readability || {},
+    photo_guidance: result.photo_guidance || null,
+  };
+
+  fs.writeFileSync(filePath, JSON.stringify(pkg, null, 2), "utf8");
+  return filePath;
+}
+
+// ─── Newsletter HTML generator ───────────────────────────────────────────────
+
+function buildNewsletterHtml(jobId, job, result) {
+  const outputDir = getJobDir(jobId);
+  const filePath = path.join(outputDir, `${jobId}-newsletter.html`);
+
+  const paragraphs = (result.article || "").split("\n\n").filter(p => p.trim());
+  const firstPara = paragraphs[0] || "";
+  const restParas = paragraphs.slice(1);
+
+  const quoteBlocks = (result.key_quotes || []).slice(0, 2).map(q => `
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+      <tr>
+        <td style="border-left: 4px solid #4a6d8c; padding: 12px 20px; background: #f0f4f8;">
+          <p style="margin: 0; font-size: 16px; line-height: 1.6; color: #2e4d6b; font-style: italic; font-family: Georgia, serif;">"${q}"</p>
+        </td>
+      </tr>
+    </table>`).join("");
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>${result.headline || "Camden Tribune"}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+<table width="620" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+
+  <!-- Header -->
+  <tr>
+    <td style="background:#2e4d6b;padding:24px 32px;border-bottom:4px solid #b83232;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td>
+            <p style="margin:0;font-size:11px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,0.6);font-family:Arial,sans-serif;">Camden</p>
+            <p style="margin:0;font-size:26px;font-weight:900;color:#ffffff;font-family:Georgia,serif;line-height:1;">Tribune</p>
+          </td>
+          <td align="right">
+            <p style="margin:0;font-size:13px;font-style:italic;color:rgba(255,255,255,0.7);font-family:Georgia,serif;">Local News. Independent Reporting.</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Headline block -->
+  <tr>
+    <td style="padding:32px 32px 0;">
+      <p style="margin:0 0 8px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#4a6d8c;font-family:Arial,sans-serif;">${(result.mode_label || result.mode || "").replace(/_/g, " ")}</p>
+      <h1 style="margin:0 0 12px;font-size:28px;font-weight:900;line-height:1.15;color:#1a1a1a;font-family:Georgia,serif;">${result.headline || ""}</h1>
+      ${result.subtitle ? `<p style="margin:0 0 20px;font-size:17px;color:#555;font-style:italic;font-family:Georgia,serif;line-height:1.5;">${result.subtitle}</p>` : ""}
+      <hr style="border:none;border-top:1px solid #e0e0e0;margin:20px 0;" />
+    </td>
+  </tr>
+
+  <!-- Summary box -->
+  ${result.summary ? `
+  <tr>
+    <td style="padding:0 32px 20px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="background:#f0f4f8;border-left:4px solid #2e4d6b;padding:16px 20px;border-radius:0 6px 6px 0;">
+            <p style="margin:0 0 6px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#4a6d8c;font-family:Arial,sans-serif;">Summary</p>
+            <p style="margin:0;font-size:15px;line-height:1.7;color:#333;font-family:Arial,sans-serif;">${result.summary}</p>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>` : ""}
+
+  <!-- First paragraph (lede) -->
+  <tr>
+    <td style="padding:0 32px 16px;">
+      <p style="margin:0;font-size:16px;line-height:1.8;color:#222;font-family:Georgia,serif;font-weight:500;">${firstPara}</p>
+    </td>
+  </tr>
+
+  <!-- Quote block(s) -->
+  ${quoteBlocks ? `<tr><td style="padding:0 32px;">${quoteBlocks}</td></tr>` : ""}
+
+  <!-- Rest of article -->
+  ${restParas.slice(0, 4).map(p => `
+  <tr>
+    <td style="padding:0 32px 16px;">
+      <p style="margin:0;font-size:15px;line-height:1.8;color:#333;font-family:Georgia,serif;">${p}</p>
+    </td>
+  </tr>`).join("")}
+
+  <!-- Read more CTA -->
+  <tr>
+    <td style="padding:24px 32px;">
+      <table cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="background:#2e4d6b;border-radius:6px;padding:12px 24px;">
+            <a href="https://camdentribune.com" style="color:#ffffff;text-decoration:none;font-size:14px;font-weight:bold;font-family:Arial,sans-serif;">Read Full Story on Camden Tribune →</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="background:#f8f8f8;padding:20px 32px;border-top:1px solid #e0e0e0;">
+      <p style="margin:0 0 6px;font-size:12px;color:#888;font-family:Arial,sans-serif;">
+        <strong style="color:#2e4d6b;">Camden Tribune</strong> · Local News. Independent Reporting.
+      </p>
+      <p style="margin:0;font-size:11px;color:#aaa;font-family:Arial,sans-serif;">
+        Generated by Lede · Camden Tribune Media Intelligence · ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+      </p>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+
+</body>
+</html>`;
+
+  fs.writeFileSync(filePath, html, "utf8");
+  return filePath;
+}
+
+// ─── DB operations ───────────────────────────────────────────────────────────
+
 async function getPendingJob() {
   const result = await pool.query(`
-    SELECT j.id, j.title, j.content_mode, t.clean_text, t.language
+    SELECT j.id, j.title, j.content_mode, j.source_url, j.source_type, t.clean_text, t.language
     FROM jobs j
     JOIN transcripts t ON t.job_id = j.id
     LEFT JOIN summaries s ON s.job_id = j.id
@@ -65,12 +380,9 @@ ${job.clean_text.substring(0, 7000)}
 
 INSTRUCTIONS:
 
-1. Detect the story mode:
-   breaking_news | government_watch | investigative | public_safety | education_beat |
-   election_campaign | community_event | seasonal_feature | restaurant_feature |
-   human_interest | obituary_memorial | hidden_gem
+1. Detect the story mode: breaking_news | government_watch | investigative | public_safety | education_beat | election_campaign | community_event | seasonal_feature | restaurant_feature | human_interest | obituary_memorial | hidden_gem
 
-2. Apply the 7-point writing audit before finalizing the article:
+2. Apply the 7-point writing audit:
    - No explanation addiction — report, don't lecture
    - No talking heads — quotes grounded in events
    - No POV drift — every sentence traces to fact
@@ -79,7 +391,7 @@ INSTRUCTIONS:
    - Start at impact, not background
    - No overwriting — strong verbs, earned adjectives
 
-3. Return ONLY a valid JSON object with EXACTLY these fields. No markdown, no code fences:
+3. Return ONLY valid JSON, no markdown, no code fences:
 
 {
   "mode": "government_watch",
@@ -87,9 +399,9 @@ INSTRUCTIONS:
   "mode_label": "Government Watch",
   "headline": "Compelling headline under 12 words",
   "subtitle": "Supporting subheadline under 20 words",
-  "summary": "3-4 sentence factual summary of what happened and why it matters.",
+  "summary": "3-4 sentence factual summary.",
   "newspack_excerpt": "1-2 sentence homepage preview under 160 characters.",
-  "article": "Full AP-style article. Each paragraph separated by blank line. Two-sentence cap. Lead with action. Include named sources, dollar amounts, vote counts. 600-1000 words for government/education, 300-500 for breaking/safety.",
+  "article": "Full AP-style article. Paragraphs separated by blank lines. Two-sentence cap. Lead with action. 600-1000 words for government/education, 300-500 for breaking/safety.",
   "key_quotes": ["Exact verbatim quote 1", "Exact verbatim quote 2", "Exact verbatim quote 3"],
   "categories": ["Local & Regional News", "Government", "Camden County"],
   "tags": ["Camden County", "Board of Commissioners"],
@@ -184,24 +496,61 @@ async function saveSummary(jobId, r) {
     JSON.stringify(r.readability || {}),
     r.photo_guidance,
   ]);
+}
 
-  // Mark job completed
-  await pool.query(
-    `UPDATE jobs SET status = 'completed', progress = 100 WHERE id = $1`,
-    [jobId]
-  );
+async function generateArtifacts(jobId, job, result) {
+  const errors = [];
+
+  // 1. Article DOCX
+  try {
+    const filePath = await buildArticleDocx(jobId, job, result);
+    await insertArtifact(jobId, "article_docx", filePath,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    console.log(`[llm] ✓ Article DOCX generated`);
+  } catch (err) {
+    errors.push(`Article DOCX: ${err.message}`);
+    console.error(`[llm] Article DOCX failed:`, err.message);
+  }
+
+  // 2. JSON package
+  try {
+    const filePath = buildJsonPackage(jobId, job, result);
+    await insertArtifact(jobId, "json_package", filePath, "application/json");
+    console.log(`[llm] ✓ JSON package generated`);
+  } catch (err) {
+    errors.push(`JSON package: ${err.message}`);
+    console.error(`[llm] JSON package failed:`, err.message);
+  }
+
+  // 3. Newsletter HTML
+  try {
+    const filePath = buildNewsletterHtml(jobId, job, result);
+    await insertArtifact(jobId, "newsletter_html", filePath, "text/html");
+    console.log(`[llm] ✓ Newsletter HTML generated`);
+  } catch (err) {
+    errors.push(`Newsletter HTML: ${err.message}`);
+    console.error(`[llm] Newsletter HTML failed:`, err.message);
+  }
+
+  if (errors.length > 0) {
+    console.warn(`[llm] Artifact generation warnings:`, errors.join("; "));
+  }
 }
 
 async function processJob(job) {
   console.log(`[llm] Job ${job.id} — mode: ${job.content_mode} — "${job.title}"`);
+
   if (!ANTHROPIC_API_KEY) {
     console.warn("[llm] ANTHROPIC_API_KEY not set — marking complete without analysis.");
     await pool.query(`UPDATE jobs SET status='completed', progress=100 WHERE id=$1`, [job.id]);
     return;
   }
+
   try {
     const result = await callClaude(job);
     await saveSummary(job.id, result);
+    await generateArtifacts(job.id, job, result);
+    await pool.query(`UPDATE jobs SET status='completed', progress=100 WHERE id=$1`, [job.id]);
     console.log(`[llm] ✓ ${job.id} — "${result.headline}" Heat:${result.headline_heat_score} SEO:${result.seo_strength_score}/9 Legal:${result.legal_risk_level}`);
   } catch (err) {
     console.error(`[llm] ✕ ${job.id}:`, err.message);

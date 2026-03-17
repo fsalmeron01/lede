@@ -305,18 +305,24 @@ export default function JobPage() {
         <div style={{ marginBottom: 32 }}>
           <Tag>Downloads</Tag>
           <div>
-            {job.artifacts?.map(a => {
-              const ext = a.file_name.split(".").pop().toLowerCase();
-              const colors = { mp3: "#e87e4a", txt: "var(--green)", docx: "var(--ct-blue-light)" };
-              const c = colors[ext] || "var(--text-dim)";
+            {job.artifacts?.filter(a => a.artifact_type !== "json").map(a => {
+              const TYPE_META = {
+                mp3:           { label: "MP3 Audio",        color: "#e87e4a" },
+                txt:           { label: "Transcript TXT",   color: "var(--green)" },
+                docx:          { label: "Transcript DOCX",  color: "var(--ct-blue-light)" },
+                article_docx:  { label: "Article DOCX",     color: "#9b7fe8" },
+                json_package:  { label: "Full Package JSON", color: "#e6b84a" },
+                newsletter_html: { label: "Newsletter HTML", color: "#e87e4a" },
+              };
+              const meta = TYPE_META[a.artifact_type] || { label: a.file_name, color: "var(--text-dim)" };
               return (
                 <a key={a.id} href={`/api/jobs/${job.id}/download?path=${encodeURIComponent(a.file_path)}`} style={{
                   display: "inline-flex", alignItems: "center", gap: 6,
                   padding: "7px 14px", marginRight: 8, marginBottom: 8,
-                  background: "var(--ink)", border: `1px solid ${c}`,
-                  borderRadius: 8, color: c, fontSize: 12,
+                  background: "var(--ink)", border: `1px solid ${meta.color}`,
+                  borderRadius: 8, color: meta.color, fontSize: 12,
                   fontFamily: "var(--font-mono)", textDecoration: "none",
-                }}>↓ {a.file_name}</a>
+                }}>↓ {meta.label}</a>
               );
             })}
             {hasSRT && <>
