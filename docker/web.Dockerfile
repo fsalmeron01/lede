@@ -14,7 +14,7 @@ RUN npm install
 COPY . .
 
 WORKDIR /app/apps/web
-RUN npm run build
+RUN npm run build 2>&1 || (echo '=== BUILD FAILED ===' && cat .next/build-manifest.json 2>/dev/null || true && false)
 
 WORKDIR /app
 RUN chmod +x /app/docker/entrypoint.sh
