@@ -581,7 +581,7 @@ export default function JobPage() {
                   <div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 20 }}>𝕏</span>
+                        <span style={{ fontSize: 20 }}>X</span>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#e0e0e0" }}>X Post</span>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: (s.social_json.x || "").length > 240 ? "var(--red-err)" : "var(--green)" }}>
                           {(s.social_json.x || "").length}/240
