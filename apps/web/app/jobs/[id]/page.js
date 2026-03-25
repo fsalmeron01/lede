@@ -604,9 +604,7 @@ export default function JobPage() {
                           <span style={{ fontSize: 20 }}>🧵</span>
                           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#e0e0e0" }}>X Thread</span>
                         </div>
-                        <button onClick={() => navigator.clipboard.writeText((s.social_json.x_thread || []).join("
-
-"))} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 12px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#e0e0e0", cursor: "pointer" }}>Copy All</button>
+                        <button onClick={() => navigator.clipboard.writeText((s.social_json.x_thread || []).join("\n\n"))} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 12px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#e0e0e0", cursor: "pointer" }}>Copy All</button>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                         {s.social_json.x_thread.map((tweet, i) => (
