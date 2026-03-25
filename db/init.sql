@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS summaries (
   legal_flags_json JSONB NOT NULL DEFAULT '[]'::jsonb,
   readability_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   photo_guidance TEXT,
+  social_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

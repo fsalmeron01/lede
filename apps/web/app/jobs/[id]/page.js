@@ -111,6 +111,25 @@ export default function JobPage() {
   const [tab, setTab] = useState("article");
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null);
+  const [regenerating, setRegenerating] = useState(false);
+
+  async function handleRegenerate() {
+    if (!confirm("Regenerate the article and social media posts for this job?")) return;
+    setRegenerating(true);
+    try {
+      await fetch(`/api/jobs/${job.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "regenerate" }),
+      });
+      // Reload after short delay
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   async function handlePublish() {
     setPublishing(true);
@@ -279,6 +298,16 @@ export default function JobPage() {
               onMouseLeave={e => { if (!publishing) e.currentTarget.style.background = "var(--ct-blue-dark)"; }}
             >
               {publishing ? <><span className="pulsing">●</span> Publishing to WordPress...</> : "⬆ Publish Draft to WordPress"}
+            </button>
+            <button onClick={handleRegenerate} disabled={regenerating} style={{
+              padding: "10px 20px",
+              background: "rgba(74,109,140,0.08)",
+              border: "1px solid var(--ct-blue-dark)",
+              borderRadius: 10, color: regenerating ? "var(--muted)" : "var(--ct-blue-light)",
+              fontFamily: "var(--font-mono)", fontSize: 12, letterSpacing: 1,
+              cursor: regenerating ? "not-allowed" : "pointer",
+            }}>
+              {regenerating ? "Regenerating..." : "⟳ Regenerate AI"}
             </button>
           ) : publishResult.error ? (
             <div style={{ padding: "14px 20px", background: "rgba(200,80,80,0.08)", border: "1px solid rgba(200,80,80,0.2)", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>

@@ -44,6 +44,7 @@ async function migrate() {
     ["summaries", "legal_flags_json",    "JSONB NOT NULL DEFAULT '[]'::jsonb"],
     ["summaries", "readability_json",    "JSONB NOT NULL DEFAULT '{}'::jsonb"],
     ["summaries", "photo_guidance",      "TEXT"],
+    ["summaries", "social_json",         "JSONB NOT NULL DEFAULT '{}'::jsonb"],
   ];
 
   for (const [table, col, type] of alterations) {

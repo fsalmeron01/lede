@@ -52,32 +52,38 @@ export async function PATCH(request, { params }) {
     const body = await request.json();
     const action = body?.action;
 
-    if (action !== "unstick") {
-      return Response.json({ error: "Unknown action." }, { status: 400 });
-    }
-
     const pool = getPool();
     const jobRes = await pool.query(`SELECT * FROM jobs WHERE id = $1`, [params.id]);
     if (jobRes.rowCount === 0) {
       return Response.json({ error: "Job not found." }, { status: 404 });
     }
 
-    const job = jobRes.rows[0];
+    // Re-run just the LLM worker (regenerate article + social posts)
+    if (action === "regenerate") {
+      // Delete existing summary so LLM worker picks it up again
+      await pool.query(`DELETE FROM summaries WHERE job_id = $1`, [params.id]);
+      await pool.query(
+        `UPDATE jobs SET status = 'generating-article', progress = 88, error_message = NULL WHERE id = $1`,
+        [params.id]
+      );
+      return Response.json({ success: true, status: "generating-article" }, { status: 200 });
+    }
 
-    // Reset job status
-    await pool.query(
-      `UPDATE jobs SET status = 'queued', progress = 0, error_message = NULL WHERE id = $1`,
-      [params.id]
-    );
+    // Re-run full pipeline from scratch
+    if (action === "unstick") {
+      await pool.query(
+        `UPDATE jobs SET status = 'queued', progress = 0, error_message = NULL WHERE id = $1`,
+        [params.id]
+      );
+      const mediaQueue = getQueue(MEDIA_QUEUE_NAME);
+      await mediaQueue.add("process-media", { jobId: params.id }, {
+        removeOnComplete: 100,
+        removeOnFail: 100,
+      });
+      return Response.json({ success: true, status: "queued" }, { status: 200 });
+    }
 
-    // Re-enqueue in BullMQ
-    const mediaQueue = getQueue(MEDIA_QUEUE_NAME);
-    await mediaQueue.add("process-media", { jobId: params.id }, {
-      removeOnComplete: 100,
-      removeOnFail: 100,
-    });
-
-    return Response.json({ success: true, status: "queued" }, { status: 200 });
+    return Response.json({ error: "Unknown action." }, { status: 400 });
   } catch (error) {
     console.error("PATCH /api/jobs/[id] error:", error);
     return Response.json({ error: "Unable to unstick job." }, { status: 500 });
