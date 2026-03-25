@@ -167,6 +167,7 @@ export default function JobPage() {
 
   const tabs = [
     { id: "article",     label: s?.article_draft ? `${s.mode_emoji || "📰"} Article Draft` : "Article Draft" },
+    { id: "social",      label: "📱 Social Media" },
     { id: "wordpress",   label: "WordPress Package" },
     { id: "seo",         label: `SEO ${s?.seo_strength_score ? `(${s.seo_strength_score}/9)` : ""}` },
     { id: "legal",       label: `Legal ${s?.legal_risk_level ? `· ${s.legal_risk_level.toUpperCase()}` : ""}` },
@@ -542,6 +543,93 @@ export default function JobPage() {
           )}
 
           {/* TRANSCRIPT */}
+          {tab === "social" && (
+            <div>
+              {!s?.social_json || Object.keys(s.social_json || {}).length === 0 ? (
+                <div style={{ color: "var(--muted)", fontFamily: "var(--font-mono)", fontSize: 13 }}>
+                  Social media posts will appear here after the article is generated.
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+
+                  {/* Facebook */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 20 }}>📘</span>
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#4a90d9" }}>Facebook Post</span>
+                      </div>
+                      <button onClick={() => navigator.clipboard.writeText(s.social_json.facebook || "")} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 12px", background: "rgba(74,144,217,0.08)", border: "1px solid rgba(74,144,217,0.3)", borderRadius: 6, color: "#4a90d9", cursor: "pointer" }}>Copy</button>
+                    </div>
+                    <div style={{ background: "var(--ink)", border: "1px solid var(--rule)", borderRadius: 10, padding: "16px 20px", fontSize: 15, lineHeight: 1.7, color: "#fff", whiteSpace: "pre-wrap" }}>
+                      {s.social_json.facebook || ""}
+                    </div>
+                    {s.social_json.facebook_long && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--muted)", letterSpacing: 1, textTransform: "uppercase" }}>Extended Version</span>
+                          <button onClick={() => navigator.clipboard.writeText(s.social_json.facebook_long || "")} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 12px", background: "rgba(74,144,217,0.08)", border: "1px solid rgba(74,144,217,0.3)", borderRadius: 6, color: "#4a90d9", cursor: "pointer" }}>Copy</button>
+                        </div>
+                        <div style={{ background: "var(--ink)", border: "1px solid var(--rule)", borderRadius: 10, padding: "16px 20px", fontSize: 14, lineHeight: 1.7, color: "var(--text-dim)", whiteSpace: "pre-wrap" }}>
+                          {s.social_json.facebook_long}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* X / Twitter */}
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontSize: 20 }}>𝕏</span>
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#e0e0e0" }}>X Post</span>
+                        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: (s.social_json.x || "").length > 240 ? "var(--red-err)" : "var(--green)" }}>
+                          {(s.social_json.x || "").length}/240
+                        </span>
+                      </div>
+                      <button onClick={() => navigator.clipboard.writeText(s.social_json.x || "")} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 12px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#e0e0e0", cursor: "pointer" }}>Copy</button>
+                    </div>
+                    <div style={{ background: "var(--ink)", border: "1px solid var(--rule)", borderRadius: 10, padding: "16px 20px", fontSize: 15, lineHeight: 1.7, color: "#fff", fontFamily: "var(--font-body)", whiteSpace: "pre-wrap" }}>
+                      {s.social_json.x || ""}
+                    </div>
+                  </div>
+
+                  {/* X Thread */}
+                  {s.social_json.x_thread?.length > 0 && (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 20 }}>🧵</span>
+                          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#e0e0e0" }}>X Thread</span>
+                        </div>
+                        <button onClick={() => navigator.clipboard.writeText((s.social_json.x_thread || []).join("
+
+"))} style={{ fontFamily: "var(--font-mono)", fontSize: 11, padding: "4px 12px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#e0e0e0", cursor: "pointer" }}>Copy All</button>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {s.social_json.x_thread.map((tweet, i) => (
+                          <div key={i} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--charcoal-light)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--muted)", flexShrink: 0, marginTop: 14 }}>{i + 1}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ background: "var(--ink)", border: "1px solid var(--rule)", borderRadius: 10, padding: "14px 18px", fontSize: 14, lineHeight: 1.7, color: "#fff", whiteSpace: "pre-wrap" }}>
+                                {tweet}
+                              </div>
+                              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: tweet.length > 240 ? "var(--red-err)" : "var(--muted)", marginTop: 4, textAlign: "right" }}>
+                                {tweet.length}/240
+                              </div>
+                            </div>
+                            <button onClick={() => navigator.clipboard.writeText(tweet)} style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "4px 10px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, color: "var(--muted)", cursor: "pointer", marginTop: 14, flexShrink: 0 }}>Copy</button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              )}
+            </div>
+          )}
+
           {tab === "transcript" && (
             <div>
               {job.transcript?.clean_text ? (

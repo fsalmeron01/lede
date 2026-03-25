@@ -66,6 +66,7 @@ async function getJob(jobId) {
   );
   const summaryRes = await pool.query(
     `SELECT * FROM summaries WHERE job_id = $1`, [jobId]
+  // social_json included via SELECT *
   );
   const publishRes = await pool.query(
     `SELECT * FROM publish_log WHERE job_id = $1 ORDER BY created_at DESC LIMIT 1`, [jobId]

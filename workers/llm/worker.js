@@ -220,6 +220,7 @@ function buildJsonPackage(jobId, job, result) {
     },
     readability: result.readability || {},
     photo_guidance: result.photo_guidance || null,
+    social: result.social || {},
   };
 
   fs.writeFileSync(filePath, JSON.stringify(pkg, null, 2), "utf8");
@@ -438,7 +439,13 @@ INSTRUCTIONS:
   },
   "photo_guidance": "Suggested photo description, framing, mood, and credit guidance.",
   "geographic_scope": "local_camden | regional_nc | statewide_nc | national",
-  "geographic_note": "One sentence explaining why this story matters to Camden Tribune readers specifically."
+  "geographic_note": "One sentence explaining why this story matters to Camden Tribune readers specifically.",
+  "social": {
+    "facebook": "Facebook post copy. 2-3 sentences. Conversational tone. Include the key fact, why it matters to residents, and end with a soft call to action like 'Read the full story at camdentribune.com'. No hashtags. Under 280 characters preferred but up to 500 is fine.",
+    "facebook_long": "Optional longer Facebook version if the story warrants it — 3-5 sentences with more context. Still conversational. No hashtags.",
+    "x": "X (Twitter) post. Hard limit: 240 characters max including spaces. Punchy. Lead with the news. End with #CamdenCounty or the most relevant local hashtag. No link — editor will add it.",
+    "x_thread": ["Tweet 1 of thread (hook — under 240 chars)", "Tweet 2 (key fact or quote — under 240 chars)", "Tweet 3 (so what / call to action — under 240 chars)"]
+  }
 }`;
 }
 
@@ -505,6 +512,7 @@ async function saveSummary(jobId, r) {
     JSON.stringify(r.legal_flags || []),
     JSON.stringify(r.readability || {}),
     r.photo_guidance,
+    JSON.stringify(r.social || {}),
   ]);
 }
 
